@@ -152,7 +152,10 @@ private:
       m_owned = true;
     } else if (size > m_capacity) {
       if (!m_owned) {
-        abort();
+        static Module Log("aurora::ByteBuffer");
+        Log.fatal("Attempted to grow non-owned (GPU-mapped) buffer from {} to {} bytes; "
+                  "a single frame exceeded its fixed staging capacity",
+                  m_capacity, size);
       }
       // Exponential expansion to avoid O(n^2) time complexity.
       if (size < m_capacity * 2) {
@@ -173,8 +176,8 @@ private:
 namespace aurora::gfx {
 inline constexpr bool UseTextureBuffer = true;
 inline constexpr uint64_t UniformBufferSize = 25165824;  // 24mb
-inline constexpr uint64_t VertexBufferSize = 3145728;    // 3mb
-inline constexpr uint64_t IndexBufferSize = 1048576;     // 1mb
+inline constexpr uint64_t VertexBufferSize = 16777216;   // 16mb
+inline constexpr uint64_t IndexBufferSize = 4194304;     // 4mb
 inline constexpr uint64_t StorageBufferSize = 8388608;   // 8mb
 inline constexpr uint64_t TextureUploadSize = 25165824;  // 24mb
 
