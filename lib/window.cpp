@@ -42,6 +42,7 @@ SDL_Window* g_window;
 SDL_Renderer* g_renderer;
 float g_frameBufferScale = 0.f;
 bool g_frameBufferAspectFit = false;
+float g_frameBufferForcedAspect = 0.f;
 AuroraWindowSize g_windowSize;
 std::vector<AuroraEvent> g_events;
 std::atomic_bool g_backgrounded = false;
@@ -400,7 +401,11 @@ AuroraWindowSize get_window_size() {
     fb_w = scaledW;
     fb_h = scaledH;
   }
-  if (g_frameBufferAspectFit) {
+  if (g_frameBufferForcedAspect > 0.f) {
+    const auto [fitW, fitH] = fit_frame_buffer_to_aspect(fb_w, fb_h, g_frameBufferForcedAspect);
+    fb_w = fitW;
+    fb_h = fitH;
+  } else if (g_frameBufferAspectFit) {
     const auto [baseW, baseH] = vi::configured_fb_size();
     if (baseW > 0 && baseH > 0) {
       const auto [fitW, fitH] =
@@ -519,6 +524,18 @@ void set_frame_buffer_aspect_fit(bool fit) {
   }
 
   g_frameBufferAspectFit = fit;
+  request_frame_buffer_resize();
+}
+
+void set_frame_buffer_forced_aspect(float aspect) {
+  if (aspect < 0.f) {
+    aspect = 0.f;
+  }
+  if (g_frameBufferForcedAspect == aspect) {
+    return;
+  }
+
+  g_frameBufferForcedAspect = aspect;
   request_frame_buffer_resize();
 }
 
