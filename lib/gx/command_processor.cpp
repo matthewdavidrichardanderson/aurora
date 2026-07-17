@@ -1854,8 +1854,21 @@ void handle_aurora(const u8* data, u32& pos, u32 size, bool bigEndian) {
     const u32 height = read_u32(data + pos, bigEndian);
     pos += 4;
     gfx::begin_offscreen(width, height);
+  } else if (subCmd == GX_AURORA_BEGIN_SCALED_OFFSCREEN) {
+    CHECK(pos + 12 <= size, "GX_AURORA_BEGIN_SCALED_OFFSCREEN read overrun");
+    const u32 width = read_u32(data + pos, bigEndian);
+    pos += 4;
+    const u32 height = read_u32(data + pos, bigEndian);
+    pos += 4;
+    const u32 scale = std::max(read_u32(data + pos, bigEndian), 1u);
+    pos += 4;
+    gfx::begin_offscreen(width * scale, height * scale, width, height);
   } else if (subCmd == GX_AURORA_END_OFFSCREEN) {
     gfx::end_offscreen();
+  } else if (subCmd == GX_AURORA_SET_COPY_BLUR) {
+    CHECK(pos + 4 <= size, "GX_AURORA_SET_COPY_BLUR read overrun");
+    g_gxState.nextCopyBlurRadius = read_u32(data + pos, bigEndian);
+    pos += 4;
   } else if (subCmd == GX_AURORA_DESTROY_TEXOBJ) {
     CHECK(pos + 4 <= size, "GX_AURORA_DESTROY_TEXOBJ read overrun");
     evict_texture_object(read_u32(data + pos, bigEndian));

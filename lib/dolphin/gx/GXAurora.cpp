@@ -66,6 +66,11 @@ void GXSetScissorRender(u32 left, u32 top, u32 wd, u32 ht) {
   GX_WRITE_U32(ht);
 }
 
+void GXSetCopyBlur(u32 radius) {
+  GX_WRITE_AURORA(GX_AURORA_SET_COPY_BLUR);
+  GX_WRITE_U32(radius);
+}
+
 void GX2SetPolygonOffset(f32 mFrontOffset, f32 mFrontScale, f32 mBackOffset, f32 mBackScale, f32 mClamp) {
   GX_WRITE_AURORA(GX2_SET_POLYGON_OFFSET);
   GX_WRITE_F32(mFrontOffset);
@@ -79,6 +84,13 @@ void GXCreateFrameBuffer(u32 width, u32 height) {
   GX_WRITE_AURORA(GX_AURORA_BEGIN_OFFSCREEN);
   GX_WRITE_U32(width);
   GX_WRITE_U32(height);
+}
+
+void GXCreateScaledFrameBuffer(u32 width, u32 height, u32 scale) {
+  GX_WRITE_AURORA(GX_AURORA_BEGIN_SCALED_OFFSCREEN);
+  GX_WRITE_U32(width);
+  GX_WRITE_U32(height);
+  GX_WRITE_U32(scale);
 }
 
 void GXRestoreFrameBuffer() {

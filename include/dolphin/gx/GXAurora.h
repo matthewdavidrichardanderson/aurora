@@ -73,6 +73,10 @@ extern "C" {
 
 #define GX_AURORA_END_OFFSCREEN 0x003A
 
+#define GX_AURORA_SET_COPY_BLUR 0x003B
+
+#define GX_AURORA_BEGIN_SCALED_OFFSCREEN 0x003C
+
 /**
  * Draw primitives with the vertex count derived from a byte length, as written by
  * GXBegin(prim, fmt, GX_AUTO). Must be followed by a u8 draw opcode (vtxfmt|prim),
@@ -142,6 +146,12 @@ void GXSetViewportRender(f32 left, f32 top, f32 wd, f32 ht, f32 nearz, f32 farz)
  */
 void GXSetScissorRender(u32 left, u32 top, u32 wd, u32 ht);
 
+/**
+ * Apply a separable integer box blur to the next GXCopyTex result.
+ * The radius is measured in render-resolution texels and is consumed by that copy.
+ */
+void GXSetCopyBlur(u32 radius);
+
 void GX2SetPolygonOffset(f32 mFrontOffset, f32 mFrontScale, f32 mBackOffset, f32 mBackScale, f32 mClamp);
 
 /**
@@ -150,6 +160,12 @@ void GX2SetPolygonOffset(f32 mFrontOffset, f32 mFrontScale, f32 mBackOffset, f32
  * Use GXCopyTex to resolve the offscreen content into a texture.
  */
 void GXCreateFrameBuffer(u32 width, u32 height);
+
+/**
+ * Create an offscreen framebuffer at an integer internal-resolution scale while
+ * retaining the supplied logical GX dimensions.
+ */
+void GXCreateScaledFrameBuffer(u32 width, u32 height, u32 scale);
 
 /**
  * Restore rendering to the main EFB framebuffer.

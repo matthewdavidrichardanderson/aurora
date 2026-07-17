@@ -349,6 +349,7 @@ struct GXState {
   u32 texCopyDstHeight = 0;
   bool texCopyDstWide = false;
   const void* texCopyDest = nullptr;
+  u32 nextCopyBlurRadius = 0;
   struct CopyTextureKey {
     const void* dest = nullptr;
     u32 width = 0;
