@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace {
 aurora::Vec2<uint32_t> scale_copy_dst(u32 logicalWidth, u32 logicalHeight) {
@@ -33,6 +34,7 @@ aurora::Vec2<uint32_t> scale_copy_dst(u32 logicalWidth, u32 logicalHeight) {
 
 namespace aurora::gx {
 void copy_tex(const void* dest, GXBool clear) noexcept {
+  const u32 blurRadius = std::exchange(g_gxState.nextCopyBlurRadius, 0);
   const auto rect = map_logical_scissor(g_gxState.texCopySrc);
   const auto [dstWidth, dstHeight] = scale_copy_dst(g_gxState.texCopyDstWidth, g_gxState.texCopyDstHeight);
   const auto texCopyFmt = g_gxState.texCopyFmt;
@@ -79,7 +81,7 @@ void copy_tex(const void* dest, GXBool clear) noexcept {
   const auto clearAlpha = clear && g_gxState.alphaUpdate;
   const auto clearDepth = clear && g_gxState.depthUpdate;
   gfx::resolve_pass(handle.handle, rect, clearColor, clearAlpha, clearDepth, g_gxState.clearColor, clear_depth_value(),
-                    texCopyFmt);
+                    texCopyFmt, blurRadius);
   ++handle.revision;
   g_gxState.copyTextures[dest] = handle;
 }

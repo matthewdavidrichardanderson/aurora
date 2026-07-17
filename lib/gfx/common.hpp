@@ -237,7 +237,8 @@ void gpu_synchronize();
 void after_present() noexcept;
 float calculate_fps() noexcept;
 void resolve_pass(TextureHandle texture, ClipRect rect, bool clearColor, bool clearAlpha, bool clearDepth,
-                  Vec4<float> clearColorValue, float clearDepthValue, GXTexFmt resolveFormat = GX_TF_RGBA8);
+                  Vec4<float> clearColorValue, float clearDepthValue, GXTexFmt resolveFormat = GX_TF_RGBA8,
+                  uint32_t blurRadius = 0);
 
 struct ColorPassDescriptor {
   const char* label = nullptr;
@@ -264,7 +265,8 @@ void begin_color_pass(const ColorPassDescriptor& desc);
 void end_color_pass();
 void queue_texture_copy(wgpu::TexelCopyTextureInfo src, wgpu::TexelCopyTextureInfo dst, wgpu::Extent3D size);
 
-void begin_offscreen(uint32_t width, uint32_t height);
+void begin_offscreen(uint32_t width, uint32_t height, uint32_t logicalWidth = 0,
+                     uint32_t logicalHeight = 0);
 void end_offscreen();
 bool is_offscreen() noexcept;
 uint32_t get_sample_count() noexcept;
@@ -320,6 +322,7 @@ wgpu::Sampler sampler_ref(const wgpu::SamplerDescriptor& descriptor);
 uint32_t align_uniform(uint32_t value);
 
 Vec2<uint32_t> get_render_target_size() noexcept;
+Vec2<uint32_t> get_logical_render_target_size() noexcept;
 void set_viewport(const Viewport& viewport) noexcept;
 void set_scissor(const ClipRect& scissor) noexcept;
 

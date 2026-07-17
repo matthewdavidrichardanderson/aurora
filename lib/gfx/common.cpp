@@ -15,6 +15,7 @@
 #include "tex_palette_conv.hpp"
 #include "texture_replacement.hpp"
 #include "texture.hpp"
+#include "texture_blur.hpp"
 #include "../window.hpp"
 
 #include <atomic>
@@ -168,6 +169,7 @@ struct RenderPass {
   uint32_t msaaSamples = 1;
 
   TextureHandle resolveTarget;
+  std::optional<texture_blur::Request> resolveBlur;
   GXTexFmt resolveFormat = GX_TF_RGBA8;
   ClipRect resolveRect;
   Range resolveUniformRange;
@@ -239,6 +241,7 @@ static render_worker::FrameSlotPool g_frameSlots{FrameSlotCount};
 static render_worker::FrameSlotPool g_stagingSlots{StagingBufferCount};
 static u32 g_currentRenderPass = UINT32_MAX;
 static bool g_inOffscreen = false;
+static Vec2<uint32_t> g_offscreenLogicalSize;
 static std::optional<RenderPass> g_suspendedEfbPass;
 static Viewport g_suspendedEfbViewport;
 static ClipRect g_suspendedEfbScissor;
@@ -648,6 +651,13 @@ Vec2<uint32_t> get_render_target_size() noexcept {
   return {windowSize.fb_width, windowSize.fb_height};
 }
 
+Vec2<uint32_t> get_logical_render_target_size() noexcept {
+  if (g_inOffscreen && g_offscreenLogicalSize.x != 0 && g_offscreenLogicalSize.y != 0) {
+    return g_offscreenLogicalSize;
+  }
+  return get_render_target_size();
+}
+
 void set_viewport(const Viewport& cmd) noexcept {
   if (cmd != g_cachedViewport) {
     push_command(CommandType::SetViewport, Command::Data{.setViewport = cmd});
@@ -673,10 +683,14 @@ PipelineRef pipeline_ref(const clear::PipelineConfig& config) {
 }
 
 void resolve_pass(TextureHandle texture, ClipRect rect, bool clearColor, bool clearAlpha, bool clearDepth,
-                  Vec4<float> clearColorValue, float clearDepthValue, GXTexFmt resolveFormat) {
+                  Vec4<float> clearColorValue, float clearDepthValue, GXTexFmt resolveFormat,
+                  uint32_t blurRadius) {
   // Resolve current render pass
   auto& prevPass = current_render_passes()[g_currentRenderPass];
   prevPass.resolveTarget = std::move(texture);
+  if (blurRadius != 0) {
+    prevPass.resolveBlur = texture_blur::prepare(prevPass.resolveTarget, blurRadius);
+  }
   prevPass.resolveRect = rect;
   prevPass.resolveFormat = resolveFormat;
   // Push UV transform uniform for tex_copy_conv (crop region in UV space)
@@ -751,6 +765,7 @@ uint32_t get_sample_count() noexcept {
 
 void clear_caches() noexcept {
   g_offscreenCache.clear();
+  texture_blur::clear_cache();
   std::lock_guard lock{g_bindGroupCacheMutex};
   g_cachedBindGroups.clear();
 }
@@ -806,7 +821,8 @@ static OffscreenCacheEntry get_offscreen_textures(uint32_t width, uint32_t heigh
   return insertIt->second;
 }
 
-void begin_offscreen(uint32_t width, uint32_t height) {
+void begin_offscreen(uint32_t width, uint32_t height, uint32_t logicalWidth,
+                     uint32_t logicalHeight) {
   ZoneScoped;
   CHECK(g_currentRenderPass != UINT32_MAX, "begin_offscreen called outside of a frame");
 
@@ -852,6 +868,10 @@ void begin_offscreen(uint32_t width, uint32_t height) {
   ++g_currentRenderPass;
 
   g_inOffscreen = true;
+  g_offscreenLogicalSize = {
+      logicalWidth != 0 ? logicalWidth : width,
+      logicalHeight != 0 ? logicalHeight : height,
+  };
 
   g_cachedViewport = {0.f, 0.f, static_cast<float>(width), static_cast<float>(height), 0.f, 1.f};
   g_cachedScissor = {0, 0, static_cast<int32_t>(width), static_cast<int32_t>(height)};
@@ -866,6 +886,7 @@ void end_offscreen() {
   enqueue_pass(current_frame_packet(), g_recordingFrameSlot, g_currentRenderPass);
 
   g_inOffscreen = false;
+  g_offscreenLogicalSize = {};
   g_offscreenColor = {};
   g_offscreenDepth = {};
 
@@ -933,6 +954,7 @@ void initialize() {
   depth_peek::initialize();
   tex_copy_conv::initialize();
   tex_palette_conv::initialize();
+  texture_blur::initialize();
   texture_replacement::initialize();
 
   // For uniform & storage buffer offset alignments
@@ -1073,6 +1095,7 @@ void shutdown() {
   depth_peek::shutdown();
   tex_copy_conv::shutdown();
   tex_palette_conv::shutdown();
+  texture_blur::shutdown();
   texture_replacement::shutdown();
   gx::shutdown();
 #ifdef AURORA_ENABLE_RMLUI
@@ -1504,6 +1527,9 @@ static void render(wgpu::CommandEncoder& cmd, FramePacket& frame, RenderPass& pa
           .depthOrArrayLayers = 1,
       };
       cmd.CopyTextureToTexture(&src, &dst, &size);
+    }
+    if (passInfo.resolveBlur) {
+      texture_blur::run(cmd, passInfo.resolveTarget, *passInfo.resolveBlur);
     }
   }
 }
