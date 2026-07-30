@@ -144,6 +144,7 @@ struct RuntimeEncoderTaskType {
   std::string label;
   EncoderTaskCallback callback = nullptr;
   void* userdata = nullptr;
+  EncoderTaskCompletionCallback afterSubmit = nullptr;
   uint32_t generation = 1;
 };
 
@@ -304,6 +305,7 @@ struct FramePacket {
   ByteBuffer storage;
   ByteBuffer textureUpload;
   wgpu::CommandEncoder encoder;
+  std::vector<AfterSubmitCallback> afterSubmitCallbacks;
   uint64_t frameId = 0;
   uint32_t frameIndex = 0;
   size_t stagingBuffer = 0;
@@ -608,7 +610,7 @@ static void render(wgpu::CommandEncoder& cmd, FramePacket& frame, RenderPass& pa
 static void render_pass(const wgpu::RenderPassEncoder& pass, FramePacket& frame, const RenderPass& passInfo);
 static void render_custom_draw(const CustomDrawCommand& draw, const wgpu::RenderPassEncoder& pass,
                                const RenderPass& passInfo);
-static void execute_encoder_task(wgpu::CommandEncoder& cmd, const EncoderTask& task);
+static void execute_encoder_task(wgpu::CommandEncoder& cmd, FramePacket& frame, const EncoderTask& task);
 static void resume_efb_pass_loading(const RenderPass& prevPass);
 static void expire_cached_bind_groups();
 static void push_command(CommandType type, const Command::Data& data);
@@ -1261,6 +1263,7 @@ EncoderTaskId register_encoder_task_type(const EncoderTaskDescriptor& desc) {
   slot.label = desc.label != nullptr ? desc.label : "";
   slot.callback = desc.callback;
   slot.userdata = desc.userdata;
+  slot.afterSubmit = desc.afterSubmit;
   return make_draw_type_id(idx, slot.generation);
 }
 
@@ -1274,6 +1277,7 @@ void unregister_encoder_task_type(EncoderTaskId type) noexcept {
   slot.label.clear();
   slot.callback = nullptr;
   slot.userdata = nullptr;
+  slot.afterSubmit = nullptr;
   ++slot.generation;
   g_freeEncoderTaskTypeSlots.push_back(idx);
 }
@@ -1737,6 +1741,7 @@ void end_frame(EndFrameCallback callback) {
     s_mappingStates[stagingSlot].store(BufferMapState::Unmapped, std::memory_order_release);
     auto encoder = std::move(packet.encoder);
     const auto stats = packet.stats;
+    auto afterSubmitCallbacks = std::move(packet.afterSubmitCallbacks);
     packet = {};
     g_stats.drawCallCount = stats.drawCallCount;
     g_stats.mergedDrawCallCount = stats.mergedDrawCallCount;
@@ -1746,7 +1751,7 @@ void end_frame(EndFrameCallback callback) {
     g_stats.lastStorageSize = stats.lastStorageSize;
     g_stats.lastTextureUploadSize = stats.lastTextureUploadSize;
     if (callback) {
-      callback(encoder);
+      callback(encoder, std::move(afterSubmitCallbacks));
     }
     g_frameSlots.release(frameSlot);
     expire_cached_bind_groups();
@@ -1852,7 +1857,7 @@ static void encode_op(wgpu::CommandEncoder& cmd, FramePacket& frame, const Frame
     break;
   case FrameOpType::EncoderTask:
     if (op.encoderTask != nullptr) {
-      execute_encoder_task(cmd, *op.encoderTask);
+      execute_encoder_task(cmd, frame, *op.encoderTask);
     }
     break;
   }
@@ -2072,7 +2077,7 @@ static void render_custom_draw(const CustomDrawCommand& draw, const wgpu::Render
   drawType.draw(context, pass, draw.payload.data(), draw.payloadSize, drawType.userdata);
 }
 
-static void execute_encoder_task(wgpu::CommandEncoder& cmd, const EncoderTask& task) {
+static void execute_encoder_task(wgpu::CommandEncoder& cmd, FramePacket& frame, const EncoderTask& task) {
   RuntimeEncoderTaskType taskType;
   {
     std::lock_guard lock{g_runtimeDrawTypeMutex};
@@ -2093,6 +2098,19 @@ static void execute_encoder_task(wgpu::CommandEncoder& cmd, const EncoderTask& t
       .storageBuffer = g_storageBuffer,
   };
   taskType.callback(context, cmd, task.payload.data(), task.payloadSize, taskType.userdata);
+  if (taskType.afterSubmit != nullptr) {
+    const auto payload = task.payload;
+    const auto payloadSize = task.payloadSize;
+    const auto callback = taskType.afterSubmit;
+    const auto userdata = taskType.userdata;
+    frame.afterSubmitCallbacks.emplace_back([payload, payloadSize, callback, userdata] {
+      const EncoderTaskCompletionContext completionContext{
+          .device = g_device,
+          .queue = g_queue,
+      };
+      callback(completionContext, payload.data(), payloadSize, userdata);
+    });
+  }
 }
 
 static void render_pass(const wgpu::RenderPassEncoder& pass, FramePacket& frame, const RenderPass& passInfo) {
