@@ -427,8 +427,8 @@ void process(const u8* data, u32 size, bool bigEndian) {
       auto const& array = g_gxState.arrays[arrayType];
       const u32 srcOffset = static_cast<u32>(srcArrayIdx) * array.stride;
       const u32 srcSize = static_cast<u32>(len) * sizeof(u32);
-      ASSERT(array.data != nullptr, "indexed XF load from unmapped array {}", arrayType);
-      ASSERT(srcOffset <= array.size && srcSize <= array.size - srcOffset,
+      AURORA_ASSERT(array.data != nullptr, "indexed XF load from unmapped array {}", arrayType);
+      AURORA_ASSERT(srcOffset <= array.size && srcSize <= array.size - srcOffset,
              "indexed XF load outside array {}: offset={}, size={}, array size={}", arrayType, srcOffset, srcSize,
              array.size);
       auto const* srcData = static_cast<const u8*>(array.data) + srcOffset;
@@ -1914,10 +1914,10 @@ void handle_aurora(const u8* data, u32& pos, u32 size, bool bigEndian) {
       } else {
         vtxSize = calculate_last_vtx_size(fmt);
       }
-      ASSERT(vtxSize != 0 && byteLen % vtxSize == 0,
+      AURORA_ASSERT(vtxSize != 0 && byteLen % vtxSize == 0,
              "GX_AURORA_DRAW_SIZED: {} bytes is not a whole number of size-{} vertices", byteLen, vtxSize);
       u32 vtxCount = byteLen / vtxSize;
-      ASSERT(vtxCount <= 0xFFFF, "GX_AURORA_DRAW_SIZED: too many vertices ({})", vtxCount);
+      AURORA_ASSERT(vtxCount <= 0xFFFF, "GX_AURORA_DRAW_SIZED: too many vertices ({})", vtxCount);
       draw_prim(prim, fmt, static_cast<u16>(vtxCount), data, pos, size);
     }
   } else if (subCmd == GX_AURORA_DRAW_INDEXED) {
@@ -1931,7 +1931,7 @@ void handle_aurora(const u8* data, u32& pos, u32 size, bool bigEndian) {
     pos += 4;
     const GXVtxFmt fmt = static_cast<GXVtxFmt>(cmd & CP_VAT_MASK);
     const GXPrimitive prim = static_cast<GXPrimitive>(cmd & CP_OPCODE_MASK);
-    ASSERT(prim == GX_TRIANGLES, "GX_AURORA_DRAW_INDEXED: primitive must be GX_TRIANGLES, got {}",
+    AURORA_ASSERT(prim == GX_TRIANGLES, "GX_AURORA_DRAW_INDEXED: primitive must be GX_TRIANGLES, got {}",
            static_cast<u32>(prim));
     const u32 idxBytes = indexCount * static_cast<u32>(sizeof(u16));
     CHECK(pos + idxBytes <= size, "GX_AURORA_DRAW_INDEXED index data overrun");

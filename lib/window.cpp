@@ -111,7 +111,7 @@ void set_window_icon() noexcept {
       SDL_CreateSurfaceFrom(static_cast<int>(g_config.iconWidth), static_cast<int>(g_config.iconHeight),
                             SDL_GetPixelFormatForMasks(32, 0x000000ff, 0x0000ff00, 0x00ff0000, 0xff000000),
                             g_config.iconRGBA8, static_cast<int>(4 * g_config.iconWidth));
-  ASSERT(iconSurface != nullptr, "Failed to create icon surface: {}", SDL_GetError());
+  AURORA_ASSERT(iconSurface != nullptr, "Failed to create icon surface: {}", SDL_GetError());
   TRY_WARN(SDL_SetWindowIcon(g_window, iconSurface), "Failed to set window icon: {}", SDL_GetError());
   SDL_DestroySurface(iconSurface);
 }
@@ -417,8 +417,8 @@ AuroraWindowSize get_window_size() {
   int height = 0;
   int native_fb_w = 0;
   int native_fb_h = 0;
-  ASSERT(SDL_GetWindowSize(g_window, &width, &height), "Failed to get window size: {}", SDL_GetError());
-  ASSERT(SDL_GetWindowSizeInPixels(g_window, &native_fb_w, &native_fb_h), "Failed to get window size in pixels: {}",
+  AURORA_ASSERT(SDL_GetWindowSize(g_window, &width, &height), "Failed to get window size: {}", SDL_GetError());
+  AURORA_ASSERT(SDL_GetWindowSizeInPixels(g_window, &native_fb_w, &native_fb_h), "Failed to get window size in pixels: {}",
          SDL_GetError());
 
   int fb_w = native_fb_w;
@@ -574,8 +574,8 @@ void set_background_input(bool value) { SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACK
 } // namespace aurora::window
 
 #if defined(SDL_PLATFORM_ANDROID)
-extern "C" JNIEXPORT void JNICALL Java_org_libsdl_app_SDLSurface_auroraNativeSetSurfaceReady(JNIEnv*, jclass,
-                                                                                             jboolean ready) {
+extern "C" JNIEXPORT void JNICALL Java_dev_encounter_aurora_AuroraSurface_nativeSetSurfaceReady(JNIEnv*, jclass,
+                                                                                                jboolean ready) {
   aurora::window::set_surface_ready(ready == JNI_TRUE);
 }
 #endif
