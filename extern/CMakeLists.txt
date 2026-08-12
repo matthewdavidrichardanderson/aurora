@@ -18,6 +18,7 @@ endfunction()
 
 if (AURORA_ENABLE_GX)
   include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/AuroraDawnProvider.cmake)
+  set(AURORA_DAWN_IS_SHARED "${AURORA_DAWN_IS_SHARED}" PARENT_SCOPE)
 endif ()
 
 # Abseil is needed for core libraries. It normally comes via Dawn's vendor build.
@@ -119,10 +120,15 @@ if (AURORA_ENABLE_GX)
     set(ZLIB_BUILD_TESTING OFF CACHE BOOL "Enable Zlib Examples as tests" FORCE)
     set(ZLIB_INSTALL OFF CACHE BOOL "Enable installation of zlib" FORCE)
     set(ZLIB_COMPAT ON CACHE BOOL "Use the compat version of zlib instead of the newer zlib-ng" FORCE)
+    if (MSVC AND CMAKE_C_COMPILER_ID STREQUAL "Clang" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
+      # zlib-ng's NEON LD4 probe passes GNU-style -march flags that clang-cl rejects
+      set(NEON_HAS_LD4 1 CACHE INTERNAL "")
+    endif ()
     FetchContent_Declare(
       ZLIB
       URL https://github.com/zlib-ng/zlib-ng/archive/refs/tags/2.3.3.tar.gz
       URL_HASH SHA256=f9c65aa9c852eb8255b636fd9f07ce1c406f061ec19a2e7d508b318ca0c907d1
+      PATCH_COMMAND ${CMAKE_COMMAND} -P "${CMAKE_CURRENT_SOURCE_DIR}/../cmake/PatchZlib.cmake"
       DOWNLOAD_EXTRACT_TIMESTAMP FALSE
       EXCLUDE_FROM_ALL
     )
@@ -294,7 +300,10 @@ if (AURORA_ENABLE_GX)
         -P "${CMAKE_CURRENT_LIST_DIR}/../cmake/patches/apply-rmlui-keyboard-showed-state.cmake"
       EXCLUDE_FROM_ALL
     )
-    FetchContent_MakeAvailable(rmlui)
+    block(SCOPE_FOR VARIABLES PROPAGATE rmlui_SOURCE_DIR rmlui_BINARY_DIR rmlui_POPULATED)
+      set(BUILD_SHARED_LIBS OFF) # Force block scope; RmlUi uses option(BUILD_SHARED_LIBS)
+      FetchContent_MakeAvailable(rmlui)
+    endblock()
 
     add_library(rmlui_backends STATIC ${rmlui_SOURCE_DIR}/Backends/RmlUi_Platform_SDL.cpp)
     # TODO: maybe dont hardcode this to SDL3?
