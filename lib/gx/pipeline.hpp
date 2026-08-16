@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../gfx/common.hpp"
+#include "../gfx/types.hpp"
 #include "gx.hpp"
 
 namespace aurora::gx {
@@ -9,6 +9,7 @@ struct DrawData {
   gfx::Range vertRange;
   gfx::Range idxRange;
   gfx::Range uniformRange;
+  DrawImmediateData immediateData;
   uint32_t vtxCount;
   uint32_t indexCount;
   uint32_t instanceCount;
