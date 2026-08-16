@@ -32,11 +32,12 @@ extern "C" void Android_UnlockActivityMutex(void);
 #include <vector>
 
 #include "rmlui.hpp"
+#include "time_internal.hpp"
 #include "dolphin/vi/vi_internal.hpp"
 
 namespace aurora::window {
 namespace {
-Module Log("aurora::window");
+constexpr Module Log{"aurora::window"};
 
 SDL_Window* g_window;
 SDL_Renderer* g_renderer;
@@ -126,10 +127,12 @@ bool SDLCALL lifecycle_event_watch(void*, SDL_Event* event) {
     switch (event->type) {
 #if defined(SDL_PLATFORM_ANDROID) || defined(SDL_PLATFORM_APPLE)
     case SDL_EVENT_WINDOW_MINIMIZED:
+      time::internal::set_pause_reason(time::internal::PauseReason::Background, true);
       g_backgrounded.store(true, std::memory_order_relaxed);
       break;
     case SDL_EVENT_WINDOW_RESTORED:
       g_backgrounded.store(false, std::memory_order_relaxed);
+      time::internal::set_pause_reason(time::internal::PauseReason::Background, false);
       break;
 #endif
     default:
@@ -145,6 +148,7 @@ void sync_paused() {
     return;
   }
   g_lastPaused = paused;
+  time::internal::set_pause_reason(time::internal::PauseReason::Window, paused);
   g_events.push_back(AuroraEvent{
       .type = paused ? AURORA_PAUSED : AURORA_UNPAUSED,
   });
@@ -381,6 +385,8 @@ bool initialize() {
   TRY(SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight"), "Error setting {}: {}", SDL_HINT_ORIENTATIONS,
       SDL_GetError());
   TRY(SDL_InitSubSystem(SDL_INIT_EVENTS | SDL_INIT_VIDEO), "Error initializing SDL: {}", SDL_GetError());
+  time::internal::set_pause_reason(time::internal::PauseReason::Surface,
+                                   !g_surfaceReady.load(std::memory_order_acquire));
 
 #if !defined(_WIN32) && !defined(__APPLE__)
   TRY(SDL_SetHint(SDL_HINT_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR, "0"), "Error setting {}: {}",
@@ -482,7 +488,10 @@ bool is_presentable() noexcept {
          g_surfaceReady.load(std::memory_order_acquire);
 }
 
-void set_surface_ready(bool ready) noexcept { g_surfaceReady.store(ready, std::memory_order_release); }
+void set_surface_ready(bool ready) noexcept {
+  g_surfaceReady.store(ready, std::memory_order_release);
+  time::internal::set_pause_reason(time::internal::PauseReason::Surface, !ready);
+}
 
 SurfaceLock::SurfaceLock() noexcept {
 #if defined(SDL_PLATFORM_ANDROID)

@@ -18,9 +18,10 @@
 #include <utility>
 #include <vector>
 
+#include "../gfx/recording.hpp"
+#include "../gfx/texture.hpp"
 #include "../logging.hpp"
 #include "../webgpu/gpu.hpp"
-#include "../gfx/texture.hpp"
 
 namespace aurora::rmlui {
 namespace {
@@ -701,7 +702,9 @@ void WebGPURenderInterface::BeginRenderTargetPass(const wgpu::TextureView& view,
   gfx::begin_color_pass({
       .label = label,
       .colorView = view,
+      .colorFormat = m_renderTargetFormat,
       .depthStencilView = clearStencil ? GetClipMaskStencilView(m_frameSize) : wgpu::TextureView{},
+      .depthStencilFormat = clearStencil ? ClipMaskStencilFormat : wgpu::TextureFormat::Undefined,
       .targetSize = m_frameSize,
       .sampleCount = 1,
       .colorLoadOp = loadOp,
@@ -728,7 +731,9 @@ void WebGPURenderInterface::BeginLayerPass(Rml::LayerHandle layer, wgpu::LoadOp 
       .label = label,
       .colorView = multisampled ? target.multisampleView : target.view,
       .resolveView = multisampled && resolveMultisampled ? target.view : wgpu::TextureView{},
+      .colorFormat = m_renderTargetFormat,
       .depthStencilView = GetClipMaskStencilView(m_frameSize),
+      .depthStencilFormat = ClipMaskStencilFormat,
       .targetSize = m_frameSize,
       .sampleCount = multisampled ? LayerSampleCount : 1,
       .colorLoadOp = loadOp,
