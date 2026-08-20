@@ -8,12 +8,29 @@ extern "C" {
 #include <stdbool.h>
 #include <dolphin/types.h>
 
+enum AuroraDvdReadDelayMode {
+    AURORA_DVD_READ_DELAY_OFF = 0,
+    AURORA_DVD_READ_DELAY_TIMED = 1,
+    AURORA_DVD_READ_DELAY_BLOCKED = 2,
+};
+
 /**
  * Open a GC/Wii disc image for use by the DVD API.
  * Must be called before DVDInit().
  * Returns true on success, false on failure.
  */
 bool aurora_dvd_open(const char* disc_path);
+
+/**
+ * Set the DVD read behavior. Timed pauses each read; Blocked holds reads until
+ * the mode is changed; Off leaves reads untouched.
+ */
+void aurora_dvd_set_read_delay_mode(u32 mode);
+
+/**
+ * Set the artificial delay applied before DVD reads, in seconds.
+ */
+void aurora_dvd_set_read_delay_seconds(u32 seconds);
 
 /**
  * Close the disc image and free all resources.

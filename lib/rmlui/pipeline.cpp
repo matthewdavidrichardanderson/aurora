@@ -360,11 +360,73 @@ fn sample_area(frag_position: vec4<f32>) -> vec4<f32> {
     return avg_color / max(total_weight, 0.000001);
 }
 
+fn rgb_to_yiq(rgb: vec3<f32>) -> vec3<f32> {
+    return vec3<f32>(
+        dot(rgb, vec3<f32>(0.299, 0.587, 0.114)),
+        dot(rgb, vec3<f32>(0.596, -0.274, -0.322)),
+        dot(rgb, vec3<f32>(0.211, -0.523, 0.312))
+    );
+}
+
+fn yiq_to_rgb(yiq: vec3<f32>) -> vec3<f32> {
+    return vec3<f32>(
+        yiq.x + 0.956 * yiq.y + 0.621 * yiq.z,
+        yiq.x - 0.272 * yiq.y - 0.647 * yiq.z,
+        yiq.x - 1.106 * yiq.y + 1.703 * yiq.z
+    );
+}
+
+fn composite_yiq(uv: vec2<f32>) -> vec3<f32> {
+    return rgb_to_yiq(textureSampleLevel(t, s, uv, 0.0).rgb);
+}
+
+fn composite_pixel(uv: vec2<f32>, chroma_step: f32) -> vec3<f32> {
+    let sample0 = composite_yiq(uv - vec2<f32>(6.0 * chroma_step, 0.0));
+    let sample1 = composite_yiq(uv - vec2<f32>(5.0 * chroma_step, 0.0));
+    let sample2 = composite_yiq(uv - vec2<f32>(4.0 * chroma_step, 0.0));
+    let sample3 = composite_yiq(uv - vec2<f32>(3.0 * chroma_step, 0.0));
+    let sample4 = composite_yiq(uv - vec2<f32>(2.0 * chroma_step, 0.0));
+    let sample5 = composite_yiq(uv - vec2<f32>(chroma_step, 0.0));
+    let center = composite_yiq(uv);
+    let sample7 = composite_yiq(uv + vec2<f32>(chroma_step, 0.0));
+    let sample8 = composite_yiq(uv + vec2<f32>(2.0 * chroma_step, 0.0));
+    let sample9 = composite_yiq(uv + vec2<f32>(3.0 * chroma_step, 0.0));
+    let sample10 = composite_yiq(uv + vec2<f32>(4.0 * chroma_step, 0.0));
+    let sample11 = composite_yiq(uv + vec2<f32>(5.0 * chroma_step, 0.0));
+    let sample12 = composite_yiq(uv + vec2<f32>(6.0 * chroma_step, 0.0));
+    let chroma = (sample0.yz + 2.0 * sample1.yz + 3.0 * sample2.yz +
+                  4.0 * sample3.yz + 5.0 * sample4.yz + 6.0 * sample5.yz +
+                  7.0 * center.yz + 6.0 * sample7.yz + 5.0 * sample8.yz +
+                  4.0 * sample9.yz + 3.0 * sample10.yz + 2.0 * sample11.yz +
+                  sample12.yz) * 0.02040816;
+    return yiq_to_rgb(vec3<f32>(center.x, chroma.x, chroma.y));
+}
+
+fn sample_composite(position: vec4<f32>, uv: vec2<f32>) -> vec4<f32> {
+    let source_size = vec2<f32>(textureDimensions(t));
+    let target_size = max(vec2<f32>(uniforms.frame_width, uniforms.frame_height),
+                          vec2<f32>(1.0, 1.0));
+    let source_position = uv * source_size - vec2<f32>(0.5, 0.5);
+    let source_fraction = fract(source_position);
+    let source_line = (floor(source_position.y) + 0.5) / source_size.y;
+    let chroma_step = max(1.0 / source_size.x, 12.0 / target_size.x);
+
+    let top = composite_pixel(vec2<f32>(uv.x, source_line), chroma_step);
+    let bottom = composite_pixel(vec2<f32>(uv.x,
+        source_line + 1.0 / source_size.y), chroma_step);
+    var color = mix(top, bottom, source_fraction.y);
+    let scanline = select(0.88, 1.0, (u32(floor(position.y)) & 1u) == 0u);
+    color *= scanline;
+    return vec4<f32>(clamp(color, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
+}
+
 @fragment
 fn main(@builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
     var color = textureSample(t, s, uv);
     if (uniforms.sampler_mode == 1u) {
         color = sample_area(position);
+    } else if (uniforms.sampler_mode == 2u) {
+        color = sample_composite(position, uv);
     }
     return vec4(color.rgb, 1.0);
 }
@@ -1008,6 +1070,10 @@ uint32_t sampler_mode() noexcept {
   switch (webgpu::get_resampler()) {
   case SAMPLER_AREA:
     return 1;
+  case SAMPLER_COMPOSITE:
+    // The seed pass contains the game image behind the menu, so it must use
+    // the same composite presentation filter as the normal present path.
+    return 2;
   case SAMPLER_BILINEAR:
   default:
     return 0;
