@@ -8,6 +8,7 @@
 #include <tracy/Tracy.hpp>
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
@@ -42,6 +43,13 @@ namespace aurora::dvd::impl {
   DVDDiskID s_diskID = {};
   DVDLowCallback s_resetCoverCallback = nullptr;
   bool s_initialized = false;
+  std::atomic_uint32_t s_readDelayMode = AURORA_DVD_READ_DELAY_OFF;
+  std::atomic_uint32_t s_readDelaySeconds = 1;
+  std::condition_variable s_readDelayCv;
+  std::mutex s_readDelayMutex;
+  constexpr auto kReadBurstIdle = std::chrono::milliseconds{250};
+  std::chrono::steady_clock::time_point s_lastReadFinished;
+  std::atomic_bool s_hasRecentRead = false;
   bool s_overlayCallbacksSet = false;
   AuroraOverlayCallbacks s_overlayCallbacks;
   std::mutex s_fstLock;
@@ -117,6 +125,52 @@ bool isValidEntryNum(s32 entry) {
 
 bool isValidFstIndex(FstIndex entry) {
   return entry >= 0 && static_cast<size_t>(entry) < s_fstEntries.size();
+}
+
+void pause_before_read() {
+  std::unique_lock lock{s_readDelayMutex};
+  while (s_readDelayMode.load(std::memory_order_relaxed) == AURORA_DVD_READ_DELAY_BLOCKED) {
+    s_readDelayCv.wait(lock, [] {
+      return s_readDelayMode.load(std::memory_order_relaxed) != AURORA_DVD_READ_DELAY_BLOCKED;
+    });
+  }
+
+  if (s_readDelayMode.load(std::memory_order_relaxed) != AURORA_DVD_READ_DELAY_TIMED) {
+    return;
+  }
+
+  // A single game load can issue many DVD reads. Delay only the first read in
+  // a burst so the configured time does not multiply across the whole load.
+  const auto now = std::chrono::steady_clock::now();
+  if (s_hasRecentRead.load(std::memory_order_relaxed) &&
+      now - s_lastReadFinished < kReadBurstIdle) {
+    return;
+  }
+
+  const auto deadline = now + std::chrono::seconds{
+      s_readDelaySeconds.load(std::memory_order_relaxed)};
+  while (s_readDelayMode.load(std::memory_order_relaxed) == AURORA_DVD_READ_DELAY_TIMED) {
+    if (!s_readDelayCv.wait_until(lock, deadline, [] {
+          return s_readDelayMode.load(std::memory_order_relaxed) != AURORA_DVD_READ_DELAY_TIMED;
+        })) {
+      return;
+    }
+
+    if (s_readDelayMode.load(std::memory_order_relaxed) == AURORA_DVD_READ_DELAY_BLOCKED) {
+      while (s_readDelayMode.load(std::memory_order_relaxed) == AURORA_DVD_READ_DELAY_BLOCKED) {
+        s_readDelayCv.wait(lock);
+      }
+      return;
+    }
+  }
+}
+
+void record_read_finished() {
+  std::lock_guard lock{s_readDelayMutex};
+  if (s_readDelayMode.load(std::memory_order_relaxed) == AURORA_DVD_READ_DELAY_TIMED) {
+    s_lastReadFinished = std::chrono::steady_clock::now();
+    s_hasRecentRead.store(true, std::memory_order_relaxed);
+  }
 }
 
 bool isAligned(const void* addr, uintptr_t align) {
@@ -230,17 +284,23 @@ s32 readFromHandle(CommandDataBase* handle, void* out, s32 length, s32 offset, u
   if (length == 0) {
     return 0;
   }
-  if (handle->seek(offset, 0) < 0) {
-    return DVD_RESULT_FATAL_ERROR;
-  }
+  pause_before_read();
 
   u8* writePtr = static_cast<u8*>(out);
   s32 totalRead = 0;
   s32 remaining = length;
+  s32 result = 0;
+  if (handle->seek(offset, 0) < 0) {
+    result = DVD_RESULT_FATAL_ERROR;
+  }
   while (remaining > 0) {
+    if (result < 0) {
+      break;
+    }
     const int64_t read = handle->read(writePtr + totalRead, static_cast<size_t>(remaining));
     if (read < 0) {
-      return DVD_RESULT_FATAL_ERROR;
+      result = DVD_RESULT_FATAL_ERROR;
+      break;
     }
     if (read == 0) {
       break;
@@ -252,7 +312,8 @@ s32 readFromHandle(CommandDataBase* handle, void* out, s32 length, s32 offset, u
   if (transferredOut != nullptr) {
     *transferredOut = static_cast<u32>(totalRead);
   }
-  return totalRead;
+  record_read_finished();
+  return result < 0 ? result : totalRead;
 }
 
 template <typename T>
@@ -652,6 +713,7 @@ bool aurora_dvd_open(const char* disc_path) {
     return false;
   }
 
+  aurora_dvd_set_read_delay_mode(AURORA_DVD_READ_DELAY_OFF);
   s_worker.stop();
   clearState();
 
@@ -709,7 +771,21 @@ bool aurora_dvd_open(const char* disc_path) {
   return true;
 }
 
+void aurora_dvd_set_read_delay_mode(u32 mode) {
+  if (mode > AURORA_DVD_READ_DELAY_BLOCKED) {
+    mode = AURORA_DVD_READ_DELAY_OFF;
+  }
+  s_hasRecentRead.store(false, std::memory_order_relaxed);
+  s_readDelayMode.store(mode, std::memory_order_relaxed);
+  s_readDelayCv.notify_all();
+}
+
+void aurora_dvd_set_read_delay_seconds(u32 seconds) {
+  s_readDelaySeconds.store(seconds, std::memory_order_relaxed);
+}
+
 void aurora_dvd_close(void) {
+  aurora_dvd_set_read_delay_mode(AURORA_DVD_READ_DELAY_OFF);
   s_worker.stop();
   clearState();
 }
