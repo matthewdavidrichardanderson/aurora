@@ -292,8 +292,8 @@ if (AURORA_ENABLE_GX)
   if (AURORA_ENABLE_RMLUI AND NOT TARGET RmlUi)
     message(STATUS "aurora: Fetching RmlUi")
     FetchContent_Declare(rmlui
-      URL https://github.com/mikke89/RmlUi/archive/f9b8c9e2935d5df2c7dff2c190d3968e99b0c3dc.tar.gz
-      URL_HASH SHA256=42b830abc2509a8c07cf02ba3313505de3a4642725654f489402022d8fefdd79
+      URL https://github.com/mikke89/RmlUi/archive/0ae381e00d7426762bb5ed897973366358b16642.tar.gz
+      URL_HASH SHA256=fa4b84db1bae7b929996beb51d79b7037cd7aec438737a0df4d3c816d9b13bd8
       DOWNLOAD_EXTRACT_TIMESTAMP FALSE
       PATCH_COMMAND ${CMAKE_COMMAND}
         -DRMLUI_SOURCE_DIR=<SOURCE_DIR>
