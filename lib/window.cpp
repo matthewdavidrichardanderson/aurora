@@ -29,6 +29,8 @@ extern "C" void Android_UnlockActivityMutex(void);
 
 #include <algorithm>
 #include <atomic>
+#include <deque>
+#include <string>
 #include <vector>
 
 #include "rmlui.hpp"
@@ -46,6 +48,7 @@ bool g_frameBufferAspectFit = false;
 float g_frameBufferForcedAspect = 0.f;
 AuroraWindowSize g_windowSize;
 std::vector<AuroraEvent> g_events;
+std::deque<std::string> g_eventStrings;
 std::atomic_bool g_backgrounded = false;
 #if defined(SDL_PLATFORM_ANDROID)
 std::atomic_bool g_surfaceReady = false;
@@ -54,6 +57,27 @@ std::atomic_bool g_surfaceReady = true;
 #endif
 bool g_lastPaused = false;
 bool g_gotFocus = false;
+
+void retain_event_strings(SDL_Event& event) {
+  switch (event.type) {
+  case SDL_EVENT_DROP_BEGIN:
+  case SDL_EVENT_DROP_FILE:
+  case SDL_EVENT_DROP_TEXT:
+  case SDL_EVENT_DROP_COMPLETE:
+  case SDL_EVENT_DROP_POSITION:
+    break;
+  default:
+    return;
+  }
+  if (event.drop.source != nullptr) {
+    g_eventStrings.emplace_back(event.drop.source);
+    event.drop.source = g_eventStrings.back().c_str();
+  }
+  if (event.drop.data != nullptr) {
+    g_eventStrings.emplace_back(event.drop.data);
+    event.drop.data = g_eventStrings.back().c_str();
+  }
+}
 
 bool operator==(const AuroraWindowSize& lhs, const AuroraWindowSize& rhs) {
   return lhs.width == rhs.width && lhs.height == rhs.height && lhs.fb_width == rhs.fb_width &&
@@ -251,6 +275,7 @@ void process_event(SDL_Event& event) {
   if (primaryWindow) {
     sync_paused();
   }
+  retain_event_strings(event);
   g_events.push_back(AuroraEvent{
       .type = AURORA_SDL_EVENT,
       .sdl = event,
@@ -261,6 +286,7 @@ void process_event(SDL_Event& event) {
 const AuroraEvent* poll_events() {
   ZoneScoped;
   g_events.clear();
+  g_eventStrings.clear();
 
   SDL_Event event;
   // Clear out the previous scroll values to prevent ghost input
