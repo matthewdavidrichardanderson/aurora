@@ -23,48 +23,6 @@ namespace aurora::gx::fifo {
 namespace {
 constexpr Module Log{"aurora::gx::fifo"};
 
-class Reader {
-public:
-  explicit Reader(std::span<const u8> data) noexcept : mData{data} {}
-
-  [[nodiscard]] bool empty() const noexcept { return mPos == mData.size(); }
-  [[nodiscard]] size_t offset() const noexcept { return mPos; }
-  [[nodiscard]] size_t size() const noexcept { return mData.size(); }
-  [[nodiscard]] size_t remaining() const noexcept { return mData.size() - mPos; }
-  [[nodiscard]] const u8* data() const noexcept { return mData.data(); }
-
-  template <typename T>
-    requires(std::is_arithmetic_v<T>)
-  T read() noexcept {
-    const auto bytes = take(sizeof(T));
-    return read_bits<T>(bytes.data());
-  }
-
-  std::span<const u8> take(size_t count) noexcept {
-    AURORA_ASSERT(count <= remaining(), "FIFO read overrun: need {} bytes at offset {}, have {}", count, mPos,
-                  remaining());
-    const auto bytes = mData.subspan(mPos, count);
-    mPos += count;
-    return bytes;
-  }
-
-  void skip(size_t count) noexcept {
-    AURORA_ASSERT(count <= remaining(), "FIFO read overrun: need {} bytes at offset {}, have {}", count, mPos,
-                  remaining());
-    mPos += count;
-  }
-
-  std::string read_string() noexcept {
-    const auto len = read<uint16_t>();
-    const auto bytes = take(len);
-    return {reinterpret_cast<const char*>(bytes.data()), bytes.size()};
-  }
-
-private:
-  std::span<const u8> mData;
-  size_t mPos = 0;
-};
-
 u16 prepare_idx_buffer(ByteBuffer& buf, GXPrimitive prim, u16 vtxStart, u16 vtxCount) noexcept {
   u16 numIndices = 0;
   if (prim == GX_QUADS) {
@@ -251,12 +209,12 @@ u8 line_mode_for_prim(GXPrimitive prim) noexcept {
 }
 } // namespace
 
-static void handle_draw(u8 cmd, Reader& reader) noexcept;
-static void handle_aurora(Reader& reader) noexcept;
+static void handle_draw(u8 cmd, ByteReader& reader) noexcept;
+static void handle_aurora(ByteReader& reader) noexcept;
 
 ProcessResult process(const u8* data, u32 size) noexcept {
   ZoneScoped;
-  Reader reader{{data, size}};
+  ByteReader reader{{data, size}};
 
   while (!reader.empty()) {
     const u8 cmd = reader.read<u8>();
@@ -372,7 +330,7 @@ ProcessResult process(const u8* data, u32 size) noexcept {
   return {size, false};
 }
 
-[[noreturn]] static void handle_draw_overrun(size_t totalVtxBytes, const Reader& reader) noexcept {
+[[noreturn]] static void handle_draw_overrun(size_t totalVtxBytes, const ByteReader& reader) noexcept {
   // Hex dump around the draw command for debugging
   const size_t pos = reader.offset();
   const size_t size = reader.size();
@@ -524,7 +482,7 @@ static void handle_draw_unmerged(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, g
   push_gx_draw(prim, fmt, vtxCount, vertRange, idxRange, numIndices);
 }
 
-static void draw_prim(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, Reader& reader) noexcept {
+static void draw_prim(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, ByteReader& reader) noexcept {
   ZoneScoped;
   u32 vtxSize;
   if (g_gxState.lastVtxFmt == fmt)
@@ -583,13 +541,13 @@ static void draw_prim(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, Reader& read
   handle_draw_unmerged(prim, fmt, vtxCount, vertRange);
 }
 
-static void handle_draw(u8 cmd, Reader& reader) noexcept {
+static void handle_draw(u8 cmd, ByteReader& reader) noexcept {
   const auto fmt = static_cast<GXVtxFmt>(cmd & CP_VAT_MASK);
   const auto prim = static_cast<GXPrimitive>(cmd & CP_OPCODE_MASK);
   draw_prim(prim, fmt, reader.read<u16>(), reader);
 }
 
-void handle_aurora(Reader& reader) noexcept {
+void handle_aurora(ByteReader& reader) noexcept {
   ZoneScoped;
   const u16 subCmd = reader.read<u16>();
 

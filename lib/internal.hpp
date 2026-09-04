@@ -7,9 +7,12 @@
 #include <array>
 #include <cassert>
 #include <cstdint>
+#include <cstring>
+#include <limits>
+#include <span>
+#include <string>
 #include <type_traits>
 #include <vector>
-#include <cstring>
 
 using namespace std::string_view_literals;
 
@@ -345,5 +348,77 @@ private:
     }
     m_capacity = size;
   }
+};
+
+class ByteReader {
+public:
+  explicit ByteReader(std::span<const uint8_t> data) noexcept : ByteReader{data.data(), data.size()} {}
+  ByteReader(const uint8_t* data, size_t size) noexcept : mData{data}, mSize{size} {}
+
+  static ByteReader unbounded(const void* data) noexcept {
+    return {static_cast<const uint8_t*>(data), std::numeric_limits<size_t>::max()};
+  }
+
+  [[nodiscard]] bool empty() const noexcept { return mPosition == mSize; }
+  [[nodiscard]] size_t offset() const noexcept { return mPosition; }
+  [[nodiscard]] size_t size() const noexcept { return mSize; }
+  [[nodiscard]] size_t remaining() const noexcept { return mSize - mPosition; }
+  [[nodiscard]] const uint8_t* data() const noexcept { return mData; }
+
+  template <typename T>
+    requires(std::is_arithmetic_v<T>)
+  T read() noexcept {
+    const auto bytes = take(sizeof(T));
+    return read_bits<T>(bytes.data());
+  }
+
+  template <typename T>
+    requires(std::is_arithmetic_v<T>)
+  bool try_read(T& value) noexcept {
+    std::span<const uint8_t> bytes;
+    if (!try_take(sizeof(T), bytes)) {
+      return false;
+    }
+    value = read_bits<T>(bytes.data());
+    return true;
+  }
+
+  std::span<const uint8_t> take(size_t count) noexcept {
+    AURORA_ASSERT(can_read(count), "Reader overrun: need {} bytes at offset {}, have {}", count, mPosition,
+                  remaining());
+    const std::span bytes{mData + mPosition, count};
+    mPosition += count;
+    return bytes;
+  }
+
+  bool try_take(size_t count, std::span<const uint8_t>& bytes) noexcept {
+    if (!can_read(count)) {
+      return false;
+    }
+    bytes = {mData + mPosition, count};
+    mPosition += count;
+    return true;
+  }
+
+  void skip(size_t count) noexcept {
+    AURORA_ASSERT(can_read(count), "Reader overrun: need {} bytes at offset {}, have {}", count, mPosition,
+                  remaining());
+    mPosition += count;
+  }
+
+  std::string read_string() noexcept {
+    const auto length = read<uint16_t>();
+    const auto bytes = take(length);
+    return {reinterpret_cast<const char*>(bytes.data()), bytes.size()};
+  }
+
+private:
+  static constexpr aurora::Module Log{"aurora::reader"};
+
+  [[nodiscard]] bool can_read(size_t count) const noexcept { return mPosition <= mSize && count <= mSize - mPosition; }
+
+  const uint8_t* mData;
+  size_t mSize;
+  size_t mPosition = 0;
 };
 } // namespace aurora
